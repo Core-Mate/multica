@@ -116,12 +116,54 @@ enabled = false
 	}
 }
 
+func TestStripCodexServiceTierDirectives(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "drops priority",
+			in:   "service_tier = \"priority\"\n",
+			want: "",
+		},
+		{
+			name: "drops single quoted priority",
+			in:   "service_tier='priority'\n",
+			want: "",
+		},
+		{
+			name: "drops current service tiers",
+			in:   "service_tier = \"flex\"\n[profiles.default]\nservice_tier = \"fast\"\n",
+			want: "[profiles.default]\n",
+		},
+		{
+			name: "preserves unrelated priority keys",
+			in:   "priority = \"high\"\nmodel = \"o3\"\n",
+			want: "priority = \"high\"\nmodel = \"o3\"\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := stripCodexServiceTierDirectives(tt.in)
+			if got != tt.want {
+				t.Errorf("stripCodexServiceTierDirectives result mismatch\n--- got ---\n%s\n--- want ---\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSanitizeCopiedCodexConfig(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 	original := `model = "o3"
+service_tier = "priority"
 
 [[skills.config]]
 name = "superpowers:brainstorming"
@@ -155,6 +197,12 @@ model = "o3"
 	}
 	if !strings.Contains(got, `model = "o3"`) {
 		t.Errorf("top-level keys should be preserved, got:\n%s", got)
+	}
+	if strings.Contains(got, `service_tier = "priority"`) {
+		t.Errorf("stale service_tier should be stripped, got:\n%s", got)
+	}
+	if strings.Contains(got, `service_tier`) {
+		t.Errorf("service_tier should not be inherited into per-task config, got:\n%s", got)
 	}
 }
 

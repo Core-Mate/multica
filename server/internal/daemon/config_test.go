@@ -330,6 +330,45 @@ func TestLoadConfig_AutoUpdate_NoFlagWinsOverCloudDefault(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_AgentWatchdogOverridesWinOverEnv(t *testing.T) {
+	stageFakeAgent(t)
+	t.Setenv("MULTICA_AGENT_IDLE_WATCHDOG", "30m")
+	t.Setenv("MULTICA_AGENT_TOOL_WATCHDOG", "2h")
+	idle := 2 * time.Hour
+	tool := 4 * time.Hour
+
+	cfg, err := LoadConfig(Overrides{
+		ServerURL:         "http://localhost:8080",
+		WorkspacesRoot:    t.TempDir(),
+		AgentIdleWatchdog: &idle,
+		AgentToolWatchdog: &tool,
+	})
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.AgentIdleWatchdog != 2*time.Hour {
+		t.Fatalf("AgentIdleWatchdog = %s, want 2h", cfg.AgentIdleWatchdog)
+	}
+	if cfg.AgentToolWatchdog != 4*time.Hour {
+		t.Fatalf("AgentToolWatchdog = %s, want 4h", cfg.AgentToolWatchdog)
+	}
+}
+
+func TestLoadConfig_DefaultAgentIdleWatchdogAllowsLongSilentOpencodeTasks(t *testing.T) {
+	stageFakeAgent(t)
+
+	cfg, err := LoadConfig(Overrides{
+		ServerURL:      "http://localhost:8080",
+		WorkspacesRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.AgentIdleWatchdog != 2*time.Hour {
+		t.Fatalf("AgentIdleWatchdog default = %s, want 2h", cfg.AgentIdleWatchdog)
+	}
+}
+
 // TestResolveAgentsViaLoginShell_StripsAliasShadowing locks down the fix for
 // #2512: when the user's rc file declares an alias with the same name as the
 // agent CLI, the resolver must still return the real binary on PATH, not the

@@ -1962,6 +1962,40 @@ model = "o3"
 	}
 }
 
+// Regression test for Codex service tier schema drift: inherited service_tier
+// values can fail either config parsing (`priority`) or request submission
+// (`flex` on unsupported accounts/models), and `fast` can burn the user's fast
+// tier. Per-task homes should omit the key instead.
+func TestPrepareCodexHomeStripsServiceTier(t *testing.T) {
+	// Cannot use t.Parallel() with t.Setenv.
+
+	sharedHome := t.TempDir()
+	sharedConfig := `model = "o3"
+service_tier = "flex"
+`
+	if err := os.WriteFile(filepath.Join(sharedHome, "config.toml"), []byte(sharedConfig), 0o644); err != nil {
+		t.Fatalf("write shared config.toml: %v", err)
+	}
+	t.Setenv("CODEX_HOME", sharedHome)
+
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	if err := prepareCodexHome(codexHome, testLogger()); err != nil {
+		t.Fatalf("prepareCodexHome failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read per-task config.toml: %v", err)
+	}
+	tomlStr := string(data)
+	if strings.Contains(tomlStr, `service_tier`) {
+		t.Errorf("per-task config.toml should not inherit service_tier, got:\n%s", tomlStr)
+	}
+	if !strings.Contains(tomlStr, `model = "o3"`) {
+		t.Errorf("top-level keys should be preserved, got:\n%s", tomlStr)
+	}
+}
+
 func TestPrepareCodexHomeSkipsMissingFiles(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv.
 
@@ -2053,6 +2087,60 @@ func TestPrepareCodexHome_RefreshesStaleAuthCopyOnReuse(t *testing.T) {
 	}
 	if string(data) != `{"refresh_token":"v2"}` {
 		t.Errorf("auth.json content = %q, want refreshed v2 contents", data)
+	}
+}
+
+func TestPrepareCodexHomeFallsBackWhenCodeXHomeIsTargetHome(t *testing.T) {
+	// Cannot use t.Parallel() with t.Setenv.
+
+	home := t.TempDir()
+	sharedHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(sharedHome, 0o755); err != nil {
+		t.Fatalf("mkdir shared home: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedHome, "auth.json"), []byte(`{"refresh_token":"real"}`), 0o644); err != nil {
+		t.Fatalf("write shared auth: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	t.Setenv("CODEX_HOME", codexHome)
+
+	if err := prepareCodexHome(codexHome, testLogger()); err != nil {
+		t.Fatalf("prepareCodexHome failed: %v", err)
+	}
+
+	authPath := filepath.Join(codexHome, "auth.json")
+	if fi, err := os.Lstat(authPath); err != nil {
+		t.Fatalf("auth.json not found: %v", err)
+	} else if fi.Mode()&os.ModeSymlink != 0 && runtime.GOOS != "windows" {
+		target, _ := os.Readlink(authPath)
+		if target == authPath {
+			t.Fatalf("auth.json must not be a self-referential symlink")
+		}
+		if target != filepath.Join(sharedHome, "auth.json") {
+			t.Fatalf("auth.json symlink target = %q, want %q", target, filepath.Join(sharedHome, "auth.json"))
+		}
+	}
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatalf("read auth.json: %v", err)
+	}
+	if string(data) != `{"refresh_token":"real"}` {
+		t.Fatalf("auth.json content = %q, want real shared auth", data)
+	}
+
+	sessionsPath := filepath.Join(codexHome, "sessions")
+	if fi, err := os.Lstat(sessionsPath); err != nil {
+		t.Fatalf("sessions not found: %v", err)
+	} else if fi.Mode()&os.ModeSymlink != 0 && runtime.GOOS != "windows" {
+		target, _ := os.Readlink(sessionsPath)
+		if target == sessionsPath {
+			t.Fatalf("sessions must not be a self-referential symlink")
+		}
+		if target != filepath.Join(sharedHome, "sessions") {
+			t.Fatalf("sessions symlink target = %q, want %q", target, filepath.Join(sharedHome, "sessions"))
+		}
 	}
 }
 

@@ -34,10 +34,12 @@ const (
 	// forever, so this watchdog is its sole liveness net. The previous 5 min default
 	// killed legitimate long assistant outputs (e.g. RFC-length writeups)
 	// where the model streams a single message for many minutes without any
-	// daemon-visible activity — see MUL-2300. 30 min keeps the safety net for
-	// truly stuck runs (dockerd hang) while leaving headroom for long writes.
+	// daemon-visible activity — see MUL-2300. OpenCode task/subagent runs can
+	// also stay daemon-silent for well over 30 min while the parent session is
+	// blocked inside the provider, so the default is intentionally longer while
+	// still preserving a liveness bound for truly stuck runs (dockerd hang).
 	// Set MULTICA_AGENT_IDLE_WATCHDOG=0 to disable.
-	DefaultAgentIdleWatchdog = 30 * time.Minute
+	DefaultAgentIdleWatchdog = 2 * time.Hour
 	// DefaultAgentToolWatchdog bounds how long a single tool call may stay in
 	// flight (tool_use emitted, no tool_result and no other message) before the
 	// idle watchdog force-stops the run. The idle watchdog ignores its normal
@@ -110,6 +112,8 @@ type Overrides struct {
 	// AgentTimeout is a pointer so an explicit `--agent-timeout 0` (no cap) is
 	// distinguishable from "flag not passed". nil = use env/default.
 	AgentTimeout                   *time.Duration
+	AgentIdleWatchdog              *time.Duration
+	AgentToolWatchdog              *time.Duration
 	CodexSemanticInactivityTimeout time.Duration
 	MaxConcurrentTasks             int
 	DaemonID                       string
@@ -298,12 +302,18 @@ func LoadConfig(overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if overrides.AgentIdleWatchdog != nil {
+		agentIdleWatchdog = *overrides.AgentIdleWatchdog
+	}
 
 	// MULTICA_AGENT_TOOL_WATCHDOG=0 disables the in-flight-tool backstop; any
 	// positive duration overrides DefaultAgentToolWatchdog.
 	agentToolWatchdog, err := durationFromEnv("MULTICA_AGENT_TOOL_WATCHDOG", DefaultAgentToolWatchdog)
 	if err != nil {
 		return Config{}, err
+	}
+	if overrides.AgentToolWatchdog != nil {
+		agentToolWatchdog = *overrides.AgentToolWatchdog
 	}
 
 	maxConcurrentTasks, err := intFromEnv("MULTICA_DAEMON_MAX_CONCURRENT_TASKS", DefaultMaxConcurrentTasks)

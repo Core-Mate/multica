@@ -79,6 +79,8 @@ func init() {
 	f.Duration("poll-interval", 0, "Task poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
 	f.Duration("heartbeat-interval", 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
 	f.Duration("agent-timeout", 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
+	f.Duration("agent-idle-watchdog", 0, "Silent-backend idle watchdog; 0 = disabled (env: MULTICA_AGENT_IDLE_WATCHDOG)")
+	f.Duration("agent-tool-watchdog", 0, "Silent in-flight tool watchdog; 0 = disabled (env: MULTICA_AGENT_TOOL_WATCHDOG)")
 	f.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	f.Int("max-concurrent-tasks", 0, "Max tasks running in parallel (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
 	f.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
@@ -98,6 +100,8 @@ func init() {
 	rf.Duration("poll-interval", 0, "Task poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
 	rf.Duration("heartbeat-interval", 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
 	rf.Duration("agent-timeout", 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
+	rf.Duration("agent-idle-watchdog", 0, "Silent-backend idle watchdog; 0 = disabled (env: MULTICA_AGENT_IDLE_WATCHDOG)")
+	rf.Duration("agent-tool-watchdog", 0, "Silent in-flight tool watchdog; 0 = disabled (env: MULTICA_AGENT_TOOL_WATCHDOG)")
 	rf.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	rf.Int("max-concurrent-tasks", 0, "Max tasks running in parallel (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
 	rf.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
@@ -302,6 +306,14 @@ func buildDaemonStartArgs(cmd *cobra.Command) []string {
 		d, _ := cmd.Flags().GetDuration("agent-timeout")
 		args = append(args, "--agent-timeout", d.String())
 	}
+	if cmd.Flags().Changed("agent-idle-watchdog") {
+		d, _ := cmd.Flags().GetDuration("agent-idle-watchdog")
+		args = append(args, "--agent-idle-watchdog", d.String())
+	}
+	if cmd.Flags().Changed("agent-tool-watchdog") {
+		d, _ := cmd.Flags().GetDuration("agent-tool-watchdog")
+		args = append(args, "--agent-tool-watchdog", d.String())
+	}
 	if d, _ := cmd.Flags().GetDuration("codex-semantic-inactivity-timeout"); d > 0 {
 		args = append(args, "--codex-semantic-inactivity-timeout", d.String())
 	}
@@ -356,6 +368,14 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("agent-timeout") {
 		d, _ := cmd.Flags().GetDuration("agent-timeout")
 		overrides.AgentTimeout = &d
+	}
+	if cmd.Flags().Changed("agent-idle-watchdog") {
+		d, _ := cmd.Flags().GetDuration("agent-idle-watchdog")
+		overrides.AgentIdleWatchdog = &d
+	}
+	if cmd.Flags().Changed("agent-tool-watchdog") {
+		d, _ := cmd.Flags().GetDuration("agent-tool-watchdog")
+		overrides.AgentToolWatchdog = &d
 	}
 	if d, _ := cmd.Flags().GetDuration("codex-semantic-inactivity-timeout"); d > 0 {
 		overrides.CodexSemanticInactivityTimeout = d

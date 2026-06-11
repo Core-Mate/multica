@@ -860,7 +860,16 @@ fi
 printf '{"type":"step_start","timestamp":1,"sessionID":"ses_fake","part":{"type":"step-start"}}\n'
 printf '{"type":"text","timestamp":2,"sessionID":"ses_fake","part":{"type":"text","text":"ok"}}\n'
 printf '{"type":"step_finish","timestamp":3,"sessionID":"ses_fake","part":{"type":"step-finish"}}\n'
-`
+	`
+}
+
+func fakeSilentThenOpencodeScript(sleep string) string {
+	return fmt.Sprintf(`#!/bin/sh
+sleep %s
+printf '{"type":"step_start","timestamp":1,"sessionID":"ses_silent","part":{"type":"step-start"}}\n'
+printf '{"type":"text","timestamp":2,"sessionID":"ses_silent","part":{"type":"text","text":"done"}}\n'
+printf '{"type":"step_finish","timestamp":3,"sessionID":"ses_silent","part":{"type":"step-finish"}}\n'
+`, sleep)
 }
 
 func containsString(items []string, want string) bool {
@@ -870,6 +879,49 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestOpencodeBackendEmitsHeartbeatWhileStdoutIsSilent(t *testing.T) {
+	oldInterval := opencodeLivenessHeartbeatInterval
+	opencodeLivenessHeartbeatInterval = 20 * time.Millisecond
+	t.Cleanup(func() { opencodeLivenessHeartbeatInterval = oldInterval })
+
+	tempDir := t.TempDir()
+	fakePath := filepath.Join(tempDir, "opencode")
+	writeTestExecutable(t, fakePath, []byte(fakeSilentThenOpencodeScript("0.12")))
+
+	backend, err := New("opencode", Config{
+		ExecutablePath: fakePath,
+		Logger:         slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("new opencode backend: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{
+		Cwd:     t.TempDir(),
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var statuses int
+	for msg := range session.Messages {
+		if msg.Type == MessageStatus && msg.Status == "running" {
+			statuses++
+		}
+	}
+	result := <-session.Result
+	if result.Status != "completed" {
+		t.Fatalf("result status = %q, error = %q; want completed", result.Status, result.Error)
+	}
+	if statuses < 2 {
+		t.Fatalf("expected periodic status heartbeats while opencode stdout is silent, got %d", statuses)
+	}
 }
 
 // TestOpencodeBackendAnchorsDirAndPWD pins the discovery-root fix from

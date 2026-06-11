@@ -57,6 +57,18 @@ func prepareCodexHome(codexHome string, logger *slog.Logger) error {
 // daemon-managed sandbox block picked by codexSandboxPolicyFor.
 func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *slog.Logger) error {
 	sharedHome := resolveSharedCodexHome()
+	if samePath(sharedHome, codexHome) {
+		fallback := defaultSharedCodexHome()
+		if !samePath(fallback, codexHome) {
+			if logger != nil {
+				logger.Warn("execenv: CODEX_HOME points at per-task codex-home; falling back to user shared ~/.codex",
+					"codex_home", codexHome,
+					"shared_home", fallback,
+				)
+			}
+			sharedHome = fallback
+		}
+	}
 
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return fmt.Errorf("create codex-home dir: %w", err)
@@ -145,11 +157,30 @@ func resolveSharedCodexHome() string {
 			return abs
 		}
 	}
+	return defaultSharedCodexHome()
+}
+
+func defaultSharedCodexHome() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), ".codex") // last resort fallback
 	}
 	return filepath.Join(home, ".codex")
+}
+
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA == nil {
+		a = absA
+	}
+	if errB == nil {
+		b = absB
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func exposeSharedCodexPluginCache(codexHome, sharedHome string) error {

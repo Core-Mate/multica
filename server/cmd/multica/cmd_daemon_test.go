@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // TestDaemonAlive locks in the liveness predicate the lifecycle commands rely
@@ -140,4 +143,73 @@ func valueColumn(t *testing.T, line string) int {
 	}
 	t.Fatalf("line missing value: %q", line)
 	return 0
+}
+
+func TestBuildDaemonStartArgsForwardsWatchdogFlags(t *testing.T) {
+	cmd := daemonLifecycleTestCmd(t)
+
+	if err := cmd.Flags().Set("agent-idle-watchdog", "2h"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("agent-tool-watchdog", "4h"); err != nil {
+		t.Fatal(err)
+	}
+
+	args := buildDaemonStartArgs(cmd)
+
+	assertAdjacentArg(t, args, "--agent-idle-watchdog", "2h0m0s")
+	assertAdjacentArg(t, args, "--agent-tool-watchdog", "4h0m0s")
+}
+
+func daemonLifecycleTestCmd(t *testing.T) *cobra.Command {
+	t.Helper()
+
+	cmd := &cobra.Command{Use: "daemon-test"}
+	f := cmd.Flags()
+	f.String("daemon-id", "", "")
+	f.String("device-name", "", "")
+	f.String("runtime-name", "", "")
+	f.Duration("poll-interval", 0, "")
+	f.Duration("heartbeat-interval", 0, "")
+	f.Duration("agent-timeout", 0, "")
+	f.Duration("agent-idle-watchdog", 0, "")
+	f.Duration("agent-tool-watchdog", 0, "")
+	f.Duration("codex-semantic-inactivity-timeout", 0, "")
+	f.Int("max-concurrent-tasks", 0, "")
+	f.Bool("no-auto-update", false, "")
+	f.Duration("auto-update-interval", 0, "")
+	f.String("server-url", "", "")
+	f.String("profile", "", "")
+
+	return cmd
+}
+
+func assertAdjacentArg(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return
+		}
+	}
+	t.Fatalf("expected adjacent args %s %s in %v", flag, value, args)
+}
+
+func TestDaemonWatchdogFlagsParseDurations(t *testing.T) {
+	cmd := daemonLifecycleTestCmd(t)
+	if err := cmd.Flags().Set("agent-idle-watchdog", "90m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("agent-tool-watchdog", "3h"); err != nil {
+		t.Fatal(err)
+	}
+
+	idle, _ := cmd.Flags().GetDuration("agent-idle-watchdog")
+	tool, _ := cmd.Flags().GetDuration("agent-tool-watchdog")
+
+	if idle != 90*time.Minute {
+		t.Fatalf("agent-idle-watchdog = %s, want 90m", idle)
+	}
+	if tool != 3*time.Hour {
+		t.Fatalf("agent-tool-watchdog = %s, want 3h", tool)
+	}
 }

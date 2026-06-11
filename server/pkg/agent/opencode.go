@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,8 @@ var opencodeBlockedArgs = map[string]blockedArgMode{
 	"--variant":                      blockedWithValue,  // owned by agent.thinking_level
 	"--dangerously-skip-permissions": blockedStandalone, // daemon manages non-interactive permission prompts
 }
+
+var opencodeLivenessHeartbeatInterval = 5 * time.Minute
 
 // opencodeBackend implements Backend by spawning `opencode run --format json`
 // and reading streaming JSON events from stdout — the same pattern as Claude.
@@ -144,6 +147,24 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
+	heartbeatDone := make(chan struct{})
+	var heartbeatWG sync.WaitGroup
+	heartbeatWG.Add(1)
+	go func() {
+		defer heartbeatWG.Done()
+		ticker := time.NewTicker(opencodeLivenessHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatDone:
+				return
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				trySend(msgCh, Message{Type: MessageStatus, Status: "running"})
+			}
+		}
+	}()
 
 	// Close stdout when the context is cancelled so the scanner unblocks.
 	go func() {
@@ -153,7 +174,11 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 	go func() {
 		defer cancel()
-		defer close(msgCh)
+		defer func() {
+			close(heartbeatDone)
+			heartbeatWG.Wait()
+			close(msgCh)
+		}()
 		defer close(resCh)
 
 		startTime := time.Now()

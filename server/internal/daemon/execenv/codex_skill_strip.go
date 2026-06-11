@@ -3,6 +3,7 @@ package execenv
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -65,9 +66,22 @@ func stripSkillsConfigEntries(content string) string {
 	return stripped
 }
 
+var codexServiceTierDirectiveRe = regexp.MustCompile(`(?m)^\s*service_tier\s*=.*\n?`)
+
+// stripCodexServiceTierDirectives removes user-level service_tier config from
+// per-task Codex homes. The accepted values drift across Codex CLI and API
+// layers: `priority` can fail config parsing, while `flex` can parse locally
+// but fail at request time for accounts/models where it is unsupported. The
+// daemon should not force fast-tier spend either, so the safest inherited task
+// config is to omit service_tier and let Codex use its default.
+func stripCodexServiceTierDirectives(content string) string {
+	return codexServiceTierDirectiveRe.ReplaceAllString(content, "")
+}
+
 // sanitizeCopiedCodexConfig rewrites the per-task config.toml in place,
-// dropping `[[skills.config]]` entries inherited from the shared
-// `~/.codex/config.toml`. No-op if the file doesn't exist or doesn't change.
+// dropping entries inherited from the shared `~/.codex/config.toml` that
+// current Codex CLI/API layers reject or that should not be forced onto daemon
+// tasks. No-op if the file doesn't exist or doesn't change.
 func sanitizeCopiedCodexConfig(configPath string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -76,11 +90,12 @@ func sanitizeCopiedCodexConfig(configPath string) error {
 		}
 		return fmt.Errorf("read config.toml: %w", err)
 	}
-	stripped := stripSkillsConfigEntries(string(data))
-	if stripped == string(data) {
+	sanitized := stripSkillsConfigEntries(string(data))
+	sanitized = stripCodexServiceTierDirectives(sanitized)
+	if sanitized == string(data) {
 		return nil
 	}
-	if err := os.WriteFile(configPath, []byte(stripped), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(sanitized), 0o644); err != nil {
 		return fmt.Errorf("write config.toml: %w", err)
 	}
 	return nil
