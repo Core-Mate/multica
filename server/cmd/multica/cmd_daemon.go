@@ -427,7 +427,10 @@ func runDaemonForeground(cmd *cobra.Command) error {
 		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
 			logger.Error("failed to open log file for restart", "error", err)
-			return nil
+			// Runtimes were already deregistered by triggerRestart() before handoff.
+			// The supervisor-spawned successor re-registers on startup; do not
+			// duplicate cleanup here.
+			return fmt.Errorf("failed to open daemon log file %s for restart: %w", logPath, err)
 		}
 		child.Stdout = logFile
 		child.Stderr = logFile
@@ -436,6 +439,9 @@ func runDaemonForeground(cmd *cobra.Command) error {
 		child.SysProcAttr = daemonSysProcAttr(true)
 
 		if err := child.Start(); err != nil {
+			// Runtimes were already deregistered by triggerRestart() before handoff.
+			// The supervisor-spawned successor re-registers on startup; do not
+			// duplicate cleanup here.
 			if isAccessDeniedSpawnErr(err) {
 				child = exec.Command(restartBin, args...)
 				child.Stdout = logFile
@@ -444,12 +450,12 @@ func runDaemonForeground(cmd *cobra.Command) error {
 				if err := child.Start(); err != nil {
 					logFile.Close()
 					logger.Error("failed to start new daemon (no breakaway)", "error", err)
-					return nil
+					return fmt.Errorf("failed to start new daemon at %s without breakaway: %w", restartBin, err)
 				}
 			} else {
 				logFile.Close()
 				logger.Error("failed to start new daemon", "error", err)
-				return nil
+				return fmt.Errorf("failed to start new daemon at %s: %w", restartBin, err)
 			}
 		}
 		logFile.Close()
