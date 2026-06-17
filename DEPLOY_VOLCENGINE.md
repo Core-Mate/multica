@@ -90,7 +90,7 @@ MULTICA_DEV_VERIFICATION_CODE=888888           # 固定验证码
 ALLOWED_EMAIL_DOMAINS=dmyh.tech               # 只允许公司邮箱
 
 # 飞书/Lark 集成
-MULTICA_LARK_SECRET_KEY=DhU1+CYIeAqOnDoKQ9fG208VtU+Sk2NczUEl8UfM6Ck=
+MULTICA_LARK_SECRET_KEY=<set-fresh-secret-on-server>
 MULTICA_PUBLIC_URL=http://115.190.130.45       # 飞书身份绑定 + 守护进程 server-url
 
 # 守护进程连接 (决定「添加电脑」弹窗的命令文案)

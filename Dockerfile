@@ -1,6 +1,7 @@
 # --- Build stage ---
 FROM golang:1.26-alpine AS builder
 
+RUN sed -i 's#https://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories
 RUN apk add --no-cache git
 
 ENV GOPROXY=https://goproxy.cn,direct
@@ -26,6 +27,7 @@ RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_task_us
 # --- Runtime stage ---
 FROM alpine:3.21
 
+RUN sed -i 's#https://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
